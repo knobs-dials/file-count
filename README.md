@@ -1,3 +1,4 @@
+Variation on du that is easier to read, and should make it easier to find where bulky things are:
 
 ```
     # file-count /home -S 100M
@@ -13,8 +14,7 @@
        1910      50    8.1G / 7.6Gi       -6.6G / -6.1Gi    /zzz/postgresql
 ```
 
-
-Variation on du that is easier to read, and should make it easier to find where bulky things are:
+For example:
 * also reports number of files and directories
 * reports both base-1000 and base-1024 numbers
 * optionally filters out small-fry individual directories (e.g. -S 100M)
