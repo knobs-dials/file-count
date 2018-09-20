@@ -18,7 +18,7 @@ import re
 try:
     import helpers_shellcolor as sc
 except ImportError:
-    # do-notrhing class if that's not here
+    #object so that e.g. sc.gray is a valid attribute fetch, even though it's not a module
     class scc(object):
         def brightyellow(self, s):
             return s
@@ -30,48 +30,47 @@ except ImportError:
             return s
         def green(self, s):
             return s
-    sc=scc() #instance
+    sc=scc() 
         
 try:
     import setproctitle
-    setproctitle.setproctitle('count-files')  # or os.path.basename(sys.argv[0])
+    setproctitle.setproctitle( os.path.basename(sys.argv[0]) )
 except ImportError:
     pass
 
 
-ignore_abs = ['/proc',]
+# globals, ew. TODO: Class-ify?
+verbose=False
+
+ignore_abs = ['/proc',] # mostly so that running it on / doesn't show a ridiculous total figure
 
 printdepthmax = -1
 
 dudiff_percent = False
 
-# globals, ew. TODO: Class-ify?
-errors = []
-ignored = []
+errors          = []
+ignored         = []
 link_duplicates = 0
 
-size_in_dir  = {}
+size_in_dir   = {}
 du_in_dir     = {}
 #files_in_dir = {}
-#dirs_in_dir = {}
+#dirs_in_dir  = {}
 
 size_under_dir  = {}
-du_under_dir  = {}
+du_under_dir    = {}
 files_under_dir = {}
-dirs_under_dir = {}
+dirs_under_dir  = {}
 
-
-ignored_symlinks = False
+ignored_symlinks = 0
 linksafe = {}
-slash = None,None # things like wine link to /, we don't want to index everything...
+slash = None,None # the (dev,inode) of '/', initialised later. Things like proc and wine like to link to /, and we want to avoid indexing everything.
 
-verbose=False
-
-results = [] # used when sorting.
+results = [] # used when sorting
 
 
 
-def kmg(bytes,kilo=1000, append='',thresh=15,rstrip0=1, extradigits=0):
+def kmg(bytes,kilo=1000, append='',thresh=15,rstrip0=1, extradigits=0, plus=False):
     """ Readable size formatter
         e.g. '%sB'%kmg(2342342324) = '2.3 GB'
              kmg(3429873278462) == '3.1T'
@@ -82,7 +81,11 @@ def kmg(bytes,kilo=1000, append='',thresh=15,rstrip0=1, extradigits=0):
         Maybe use sfloat-like behaviour for the number?
     """
     ret = None
-    
+    if plus:
+        plus='+'
+    else:
+        plus=''
+        
     mega = kilo*kilo
     giga = mega*kilo
     tera = giga*kilo
@@ -132,7 +135,7 @@ def kmg(bytes,kilo=1000, append='',thresh=15,rstrip0=1, extradigits=0):
         showval = bytes
         showdigits=0
 
-    ret = ("%%.%df"%(showdigits))%showval
+    ret = ("%%%s.%df"%(plus,showdigits))%showval
         
     if rstrip0:
         if '.' in ret:
@@ -221,8 +224,10 @@ def print_under(dn, colors=True): # showabspath=0,
     if size_under_dir[dn]==0: # TODO: under a kB (to avoid i)
         sz_str='         0         '
     else:
-        sz_str   = '%8s / '%kmg(size_under_dir[dn], kilo=1000, extradigits=extradigits)
-        sz_str  += '%-8s'%(kmg(size_under_dir[dn], kilo=1024, extradigits=extradigits)+'i')
+        sz_str   = '%8s / %-8s'%(
+            kmg(size_under_dir[dn], kilo=1000, extradigits=extradigits),
+            kmg(size_under_dir[dn], kilo=1024, extradigits=extradigits)+'i'
+        )
     #if sz_str[-2] in '[0-9]':
     #    sz.str=sz_str.rstrip('i')
 
@@ -261,8 +266,10 @@ def print_under(dn, colors=True): # showabspath=0,
     if dudiff==0: # TODO: under a kB (to avoid i)
         dudiff_str='         0         '
     else:
-        dudiff_str = '%+8s / '%kmg( dudiff, kilo=1000, extradigits=extradigits)
-        dudiff_str += '%-+8s'%(kmg( dudiff, kilo=1024, extradigits=extradigits)+'i')
+        dudiff_str = '%8s / %-8s'%(
+            kmg( dudiff, kilo=1000, extradigits=extradigits, plus=True),
+            kmg( dudiff, kilo=1024, extradigits=extradigits, plus=True)+'i'
+        )
     if dudiff_percent:
         if sz==0:
             ddv = 100
@@ -302,7 +309,7 @@ def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
         CONSIDER: figure out whether we want to make symlink handling flexible.
     """
     import stat
-    global errors, ignored, link_duplicates,linksafe, ignored_symlinsk
+    global errors, ignored, link_duplicates,linksafe, ignored_symlinks
 
     if top in ignore_abs:
         ignored.append( top )
@@ -330,7 +337,7 @@ def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
     	ffn = join(top, name)
         try:
             if os.path.islink(ffn):
-                ignored_symlinks = True
+                ignored_symlinks += 1 # TODO: count instead, because why not?
                 continue
             
             stob = os.stat(ffn)   # does follow symlinks. TODO: allow control, i.e. lstat for no symlink following?
@@ -541,6 +548,6 @@ if __name__=='__main__':
         #print errors
 
         
-    if ignored_symlinks:
-        print "INFO: we ignored some symlinks"
+    if ignored_symlinks>0:
+        print "INFO: we ignored %d symlinks"%ignored_symlinks
 
