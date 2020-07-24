@@ -1,11 +1,18 @@
-#!/usr/bin/python
-''' Similar to DU, but also shows file and dir counts, reports bytes and ibibytes, and both apparent size and disk usage
+#!/usr/bin/python3
+''' Like du, except 
+    - also counts files and dirs
+    - reports both 
+        apparent size (the byte size presented to users) and 
+        disk usage (the amount of storage actually used, often a little higher, sometimes much lower)
 
-    Does not count symlinks (to known files).
+    Does not count symlinks (to know files).
 
     TODO: allow result sorting by count and(/or) size, which means only reporting once we're done.
     TODO: add GiB versus GB
 
+Written by Bart Alewijnse
+
+Has gone through some iterations, needs cleanup.
 '''
 
 
@@ -30,7 +37,7 @@ except ImportError:
             return s
         def green(self, s):
             return s
-    sc=scc() 
+    sc=scc() #instance
         
 try:
     import setproctitle
@@ -48,8 +55,9 @@ printdepthmax = -1
 
 dudiff_percent = False
 
-errors          = []
-ignored         = []
+
+# globals, ew. TODO: Class-ify?
+errors = []
 link_duplicates = 0
 
 size_in_dir   = {}
@@ -61,6 +69,8 @@ size_under_dir  = {}
 du_under_dir    = {}
 files_under_dir = {}
 dirs_under_dir  = {}
+
+ignored = []
 
 ignored_symlinks = 0
 linksafe = {}
@@ -189,9 +199,9 @@ def parse_kmg(s, kilo=1000, listen_to_i=False):
         ret=int(ret)
         return ret
     
-    except Exception, e:        
-        print "Didn't understand value %r"%ns
-        print e
+    except Exception as e:        
+        print("Didn't understand value %r"%ns)
+        print(e)
         raise
 
 
@@ -299,13 +309,14 @@ def print_under(dn, colors=True): # showabspath=0,
             dudiff_str = sc.brightyellow(dudiff_str)
         
     msg = '%s%s%s%s   %s'%(fcnt_str,dcnt_str, sz_str, dudiff_str, dn)    
-    print msg
+    print(msg)
     
 
+    
 def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
-    """ this is an stripped and augmented version of from py2's os.walk
+    """ this is a stripped and augmented version of from py2's os.walk
         It saves some stats, and it's bottom-up so we could report as we walk.
-
+    
         CONSIDER: figure out whether we want to make symlink handling flexible.
     """
     import stat
@@ -326,15 +337,15 @@ def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
             
     try:
         names = listdir(top)
-    except error, err:
+    except error as err:
         #print err
         if onerror is not None:
             onerror(err)
         return
 
     dirs, nondirs = [], []
-    for name in names:
-    	ffn = join(top, name)
+    for name in sorted(names):
+        ffn = join(top, name)
         try:
             if os.path.islink(ffn):
                 ignored_symlinks += 1 # TODO: count instead, because why not?
@@ -353,7 +364,7 @@ def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
                 #print "Duplicate file inode in %r (%d %d, with %r), skipping..."%(ffn,stob.st_dev, stob.st_ino, linksafe[stob.st_dev, stob.st_ino])
                 continue
                         
-        except (IOError,OSError),e:
+        except (IOError,OSError) as e:
             errors.append(ffn) 
             continue
             
@@ -399,11 +410,11 @@ def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
             uniq = (stob.st_dev,stob.st_ino)
 
             if uniq==slash:
-                print "WARNING: link to /, skipping..."
+                print("WARNING: link to /, skipping...")
                 continue
             if uniq in linksafe:
                 if verbose:
-                    print "Duplicate dir inode in %r (%d %d, with %r), skipping..."%(fdn,stob.st_dev, stob.st_ino, linksafe[stob.st_dev, stob.st_ino])
+                    print("Duplicate dir inode in %r (%d %d, with %r), skipping..."%(fdn,stob.st_dev, stob.st_ino, linksafe[stob.st_dev, stob.st_ino]))
                 continue
 
             #print "Entering %d %d for %r"%(stob.st_dev, stob.st_ino, fdn)        
@@ -417,7 +428,7 @@ def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
                 print_under(fdn)
             else:
                 results.append(  (fdn, files_under_dir[fdn], dirs_under_dir[fdn], size_under_dir[fdn], du_under_dir[fdn])  )
-        except (OSError,), e:
+        except (OSError,) as e:
             errors.append(e)
             
     yield top, dirs, nondirs
@@ -431,7 +442,7 @@ if __name__=='__main__':
     p.add_option("-n", "--depth",
                  default='1',
                  dest="depth",
-                 help="the maximum amount of depth to print, relative to starting point (default: 2)")
+                 help="the maximum amount of directory depth to print, relative to starting point. Default is 2, which should not be so overwhelming.")
 
     p.add_option("-C", "--mincount",
                  default='0',
@@ -453,12 +464,6 @@ if __name__=='__main__':
                  action='store_true',
                  dest="sort_size",
                  help="sort output by size (postpones output)")
-
-    p.add_option("-t", "--thousand",
-                 default=False,
-                 action='store_true',
-                 dest="thousand",
-                 help="kilos are based on factor 1000 instead of factor 1024")
 
     p.add_option("-f", "--sort-filecount",
                  default=None,
@@ -482,72 +487,71 @@ if __name__=='__main__':
     dudiff_percent = options.dudiff_percent
 
     extradigits = int(options.extradigits)
-
-    #kilo = 1024
-    #ktrail = 'i'
-    #if options.thousand:
-    #    kilo=1000
-    #    ktrail=' '
     
     slash_stob = os.stat('/')
     slash = (slash_stob.st_dev, slash_stob.st_ino)
 
     if len(args)==0:
-        path = '.'
-    elif len(args)==1:
-        path = args[0]
-    else:
-        print 'Currently works on exactly one starting path, you gave %s'%len(args)
-        sys.exit(-1)
+        args = ['.']
+    #elif len(args)==1:
+    #    path = args[0]
+    #else:
+    #    print 'Currently works on exactly one starting path, you gave %s'%len(args)
+    #    sys.exit(-1)
 
-    path = os.path.abspath( path )
-    if path!='/':
-        path = path.rstrip('/')
-    if not os.path.exists(path):
-        print 'Path  %r  does not exist'%path
-        sys.exit(-1)
-
-    printdepthmax  = path.count('/') + int(options.depth,10)  # TODO: verify. And may the logic more easily verifiable
-    mincount       = int(options.mincount,10)
-    minsize        = parse_kmg(options.minsize)
-
-    print_while_walking = True
-    if options.sort_size!=None or options.sort_filecount!=None or options.sort_dircount!=None:
-        print_while_walking = False
-        print "Output postponed until we are done, since we'll be sorting it..."
-
-    print "  #FILES   #DIRS       ASIZE              DUDIFF        DU (%)   PATH"
-
-    # do the filesystem work, and report as we go
-    for r,ds,fs in mywalk(path, print_while_walking=print_while_walking):
-        pass
-
-    if not print_while_walking: # condition is actually 'if we are sorting'
-        results.append( (path, files_under_dir[path], dirs_under_dir[path], size_under_dir[path], du_under_dir[path]) )
+    for path in args:
+        print("")
         
+        path = os.path.abspath( path )
+        if path!='/':
+            path = path.rstrip('/')
+        if not os.path.exists(path):
+            print('Path  %r  does not exist'%path)
+            sys.exit(-1)
+
+        printdepthmax  = path.count('/') + int(options.depth,10)  # TODO: verify. And may the logic more easily verifiable
+        mincount       = int(options.mincount,10)
+        minsize        = parse_kmg(options.minsize)
+
+        print_while_walking = True
+        if options.sort_size!=None or options.sort_filecount!=None or options.sort_dircount!=None:
+            print_while_walking = False
+            print("Output postponed until we are done, since we'll be sorting it...")
+
+        print("  #FILES   #DIRS       ASIZE              DUDIFF        DU (%)   PATH")
+
+        # do the filesystem work, and report as we go
+        for r,ds,fs in mywalk(path, print_while_walking=print_while_walking):
+            pass
+        
+        if not print_while_walking: # condition is actually 'if we are sorting'
+            results.append( (path, files_under_dir[path], dirs_under_dir[path], size_under_dir[path], du_under_dir[path]) )
+            
         if options.sort_size:
             results.sort(lambda a,b: cmp(a[3],b[3]))
         elif options.sort_filecount:
             results.sort(lambda a,b: cmp(a[2],b[2]))            
         elif options.sort_dircount:
-            results.sort(lambda a,b: cmp(a[1],b[1]))            
+            results.sort(lambda a,b: cmp(a[1],b[1]))
+            
         for dn,_,_,_,_ in results:
             print_under(dn)
-    else:
-        print_under(path) # the one the recursion forgets :)
+        else:
+            print_under(path) # the one the recursion forgets :)
 
     if link_duplicates > 0:
-        print "%d link duplicates"%link_duplicates
+        print("%d link duplicates"%link_duplicates)
 
     if len(errors) > 0:
-        print "INFO: incomplete; could not access %d items"%len(errors)
+        print("INFO: incomplete; could not access %d items"%len(errors))
         #print errors
         
     if len(ignored) > 0:
-        print "INFO: ignored %d items"%len(ignored)
+        print("INFO: ignored %d items"%len(ignored))
         #print errors
 
         
     if ignored_symlinks>0:
-        print "INFO: we ignored %d symlinks"%ignored_symlinks
+        print("INFO: we ignored %d symlinks"%ignored_symlinks)
 
+    print("")
