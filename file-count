@@ -53,8 +53,6 @@ ignore_abs = ['/proc',] # mostly so that running it on / doesn't show a ridiculo
 
 printdepthmax = -1
 
-dudiff_percent = False
-
 
 # globals, ew. TODO: Class-ify?
 errors = []
@@ -209,7 +207,7 @@ def parse_kmg(s, kilo=1000, listen_to_i=False):
 
 
 def print_under(dn, colors=True): # showabspath=0, 
-    global dudiff_percent, printdepthmax
+    global printdepthmax
 
     dn = os.path.abspath(dn)
 
@@ -280,18 +278,6 @@ def print_under(dn, colors=True): # showabspath=0,
             kmg( dudiff, kilo=1000, extradigits=extradigits, plus=True),
             kmg( dudiff, kilo=1024, extradigits=extradigits, plus=True)+'i'
         )
-    if dudiff_percent:
-        if sz==0:
-            ddv = 100
-        else:
-            ddv = (100.*(sz+dudiff))/sz
-        if sz<100000:# or ddv>99. and ddv<101.:
-            dudiff_str += '        '
-        else:
-            tt = '%.1f%%'%ddv
-            if tt.endswith('.0%'):
-                tt=tt[:-3]+'%'
-            dudiff_str += ' %7s'%( tt )
 
     if abs(dudiff) < 65536:
         dudiff_str = sc.darkgray(dudiff_str)
@@ -477,14 +463,7 @@ if __name__=='__main__':
                  dest="sort_dircount",
                  help="sort output by directory count (postpones output)")
 
-    p.add_option("-p", "--dudiff-percent",
-                 default=False,
-                 action='store_true',
-                 dest="dudiff_percent",
-                 help="Whether to report the difference between disk usage and apparent size in percent rather than bytes)")
-
     options, args = p.parse_args()    
-    dudiff_percent = options.dudiff_percent
 
     extradigits = int(options.extradigits)
     
@@ -518,7 +497,7 @@ if __name__=='__main__':
             print_while_walking = False
             print("Output postponed until we are done, since we'll be sorting it...")
 
-        print("  #FILES   #DIRS       ASIZE              DUDIFF        DU (%)   PATH")
+        print("  #FILES   #DIRS       ASIZE              DUDIFF         PATH")
 
         # do the filesystem work, and report as we go
         for r,ds,fs in mywalk(path, print_while_walking=print_while_walking):
