@@ -509,9 +509,9 @@ if __name__=='__main__':
         if options.sort_size:
             results.sort(key=lambda a: a[3])
         elif options.sort_filecount:
-            results.sort(key=lambda a: a[2])
-        elif options.sort_dircount:
             results.sort(key=lambda a: a[1])
+        elif options.sort_dircount:
+            results.sort(key=lambda a: a[2])
             
         for dn,_,_,_,_ in results:
             print_under(dn)
