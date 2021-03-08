@@ -52,15 +52,20 @@ _guess = None
 def tty_size(debug=False):
     """ fetches current terminal size
 
-        Has more methods than probably necessary -- under *nix.
+        Has a few methods under *nix, probably largely redundant.
         Under windows there is only one, and counts on ctypes
 
         returns a dict with keys 'cols' and 'rows'.
-        Values are None when we cannot determine them.
+        Values are None when we cannot determine them. You probably want fallback logic around this
     """
     ret = { 'cols':None, 'rows':None }
+
+    if not sys.stdin.isatty(): # if we don't have a terminal (e.g. running in a service), don't try to run things that will only fail ioctls
+        # There may be better ways to detect this.
+        return ret    
+
     
-    try: # *nix only
+    try: # ioctl (*nix only)
         import fcntl, termios, struct
         fd=1
         hw = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ, '1234'))
@@ -71,9 +76,9 @@ def tty_size(debug=False):
             raise
     if ret['rows'] not in (0,None) and ret['cols'] not in (0,None):
         return ret
-
+    
                                                         
-    try: # *nix only
+    try: # stty (*nix only)        
         import subprocess
         p = subprocess.Popen('stty size', stdout=subprocess.PIPE, shell=True)
         out,_ = p.communicate()
@@ -88,7 +93,7 @@ def tty_size(debug=False):
         return ret
 
     
-    try: # *nix only
+    try: # tput (*nix only)
         import subprocess
         p = subprocess.Popen('tput cols', stdout=subprocess.PIPE, shell=True)
         out,_ = p.communicate()
@@ -103,7 +108,7 @@ def tty_size(debug=False):
         return ret
 
     
-    try: # *nix only, really...
+    try: # piggyback on curses (*nix only, really...)
         import curses
         stdscr = curses.initscr()
         curses.initscr()
@@ -129,9 +134,7 @@ def tty_size(debug=False):
     try:
         # from http://code.activestate.com/recipes/440694-determine-size-of-console-window-on-windows/
         from ctypes import windll, create_string_buffer
-        # stdin handle is -10
-        # stdout handle is -11
-        # stderr handle is -12
+        # stdin, stdout, stderr handles are -10, -11, -12
         h    = windll.kernel32.GetStdHandle(-12)
         csbi = create_string_buffer(22)
         res  = windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
@@ -459,7 +462,6 @@ def _format_segment(s):
 
 
 
-
 def _percent_parse(s, add=[]):
     """ Will rewrite any format strings with a width to have more width by the amount specified.
         The add array must have as many items as there are format strings.
@@ -538,15 +540,13 @@ def truncate_real_len(s,len, append=DEFAULT):
 
 def cformat(fs, seq, fsinstead=False):
     """ EXPERIMENT:
-        A percent formatter that is aware of the zero-display-width of these escapes.
-          (will add the additional bytes to the percent-formatter's width)       
-        This means you can feed it strings with color escapes,
-          and it'll try to avoid magic reindenting weirdness.
+        A percent formatter that is aware of the zero-display-width of these escapes,
+        so you can feed it strings with color escapes and avoid some magic reindenting weirdness.
         
         cformat(arg1,arg2) acts like arg1%arg2
 
         e.g. cformat('%20s', (WHITE+'fork'+RESET,) ) == '                \x1b[1;37mfork\x1b[0m\x1b[39m'
-        and not                                         '\x1b[1;37mfork\x1b[0m\x1b[39m'
+                                             instead of '\x1b[1;37mfork\x1b[0m\x1b[39m'
 
         Assumption is that escapes have zero width, which is true for colors but not for weirder things.
     """

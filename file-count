@@ -507,11 +507,11 @@ if __name__=='__main__':
             results.append( (path, files_under_dir[path], dirs_under_dir[path], size_under_dir[path], du_under_dir[path]) )
             
         if options.sort_size:
-            results.sort(lambda a,b: cmp(a[3],b[3]))
+            results.sort(key=lambda a: a[3])
         elif options.sort_filecount:
-            results.sort(lambda a,b: cmp(a[2],b[2]))            
+            results.sort(key=lambda a: a[2])
         elif options.sort_dircount:
-            results.sort(lambda a,b: cmp(a[1],b[1]))
+            results.sort(key=lambda a: a[1])
             
         for dn,_,_,_,_ in results:
             print_under(dn)
