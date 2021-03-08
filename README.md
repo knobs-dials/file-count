@@ -9,8 +9,8 @@ Variation on du that is easier to read, and should make it easier to find where 
 		 
     # file-count /pool/postgres -d
      #FILES   #DIRS       ASIZE             DUDIFF         PATH
-        855      26     39M / 37Mi       +3.3M / +3.2Mi    /zzz/postgresql/9.5
        1053      22    8.1G / 7.5Gi      -6.6G / -6.1Gi    /zzz/postgresql/9.3
+        855      26     39M / 37Mi       +3.3M / +3.2Mi    /zzz/postgresql/9.5
        1910      50    8.1G / 7.6Gi      -6.6G / -6.1Gi    /zzz/postgresql
 ```
 
