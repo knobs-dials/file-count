@@ -20,7 +20,7 @@ For example:
 * by default doesn't print things 2 steps deeper than the directory we started in
 * optionally filters out small-fry directories, e.g. -S 100M in the first example.
 * optionally sorts by size
-* reports apparent size, as well as difference in actualy disk use (which is usually slightly more due to  overhead, but can be lower, e.g. around sparse files or ZFS compression). Optionally also prints that different as a percentage
+* reports apparent size, as well as difference in actualy disk use (which is usually slightly higher due to overhead, but can be lower e.g. around sparse files or ZFS compression). Optionally also prints that different as a percentage
 
 
 Does not count symlinks.
