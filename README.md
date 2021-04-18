@@ -28,3 +28,6 @@ Does not count symlinks.
 TODO:
  - clarify what exactly we do around links
  - deal with being handed multiple directories (?) 
+
+CONSIDERING:
+ - 'stay on one device' feature
