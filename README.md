@@ -1,4 +1,16 @@
-Variation on `du` that is easier to read, and should make it easier to find where bulky things are, e.g.:
+Variation on `du` that is easier to read.
+
+For example:
+* reports number of files and number of directories
+* reports both base-1000 and base-1024 numbers. Mostly because I got tired of explaining the difference at work.
+* by default doesn't produce output for 2 directories deeper than the directory we started in
+* optionally filters out small-fry directories, e.g. -S 100M in the first example.
+* optionally sorts by size
+* reports apparent size, as well as difference in actualy disk use (which is usually only slightly higher due to filesystem overhead, but can be lower e.g. around sparse files or ZFS compression).
+* ignores symlinks, since we only care about real files in their actual location
+
+
+Should e.g. make it easier to find where bulky things are, e.g.:
 ```
     # file-count /usr
       #FILES   #DIRS       ASIZE              DUDIFF         PATH
@@ -17,6 +29,20 @@ Variation on `du` that is easier to read, and should make it easier to find wher
     INFO: we ignored 47935 symlinks
 ```
 
+Okay, then what are the largest directories in `/usr/share`?
+```
+    # file-count /usr/share -s -S 500M
+    Output postponed until we are done, since we'll be sorting it...
+      #FILES   #DIRS       ASIZE              DUDIFF         PATH
+        6650    1641    644M / 614Mi       +18M / +18Mi      /usr/share/atom
+       79618    4707    1.2G / 1.1Gi      +191M / +182Mi     /usr/share/texlive
+       43219    7929    1.8G / 1.7Gi      +103M / +98Mi      /usr/share/doc
+        2581     245      2G / 1.9Gi      +5.7M / +5.4Mi     /usr/share/fonts
+       37884     187    3.4G / 3.2Gi       +82M / +78Mi      /usr/share/nltk_data
+      301078   29678   10.7G / 10Gi       +763M / +728Mi     /usr/share
+    INFO: we ignored 38360 symlinks
+```
+
 Show home directories larger than 100MB:
 ```
     # file-count /home -S 100M
@@ -26,17 +52,6 @@ Show home directories larger than 100MB:
       122894   10585     46G / 43Gi       -1.8G / -1.7Gi     /home
 ```
 
-
-For example:
-* reports number of files and number of directories
-* reports both base-1000 and base-1024 numbers. Mostly because I got tired of explaining the difference at work.
-* by default doesn't produce output for 2 directories deeper than the directory we started in
-* optionally filters out small-fry directories, e.g. -S 100M in the first example.
-* optionally sorts by size
-* reports apparent size, as well as difference in actualy disk use (which is usually only slightly higher due to filesystem overhead, but can be lower e.g. around sparse files or ZFS compression).
-
-
-Since we care abou real files in their actual location, we ignore symlinks.
 
 ## USAGE
 ```
@@ -63,6 +78,7 @@ Options:
 
 
 ## TODO:
+ - figure out double output logic of root dir
  - clarify what exactly we do around links
  - deal with being handed multiple directories (?) 
 
