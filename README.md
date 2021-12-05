@@ -17,22 +17,13 @@ Variation on `du` that is easier to read, and should make it easier to find wher
     INFO: we ignored 47935 symlinks
 ```
 
-Figure out, by size, which installed datebase version is being used
-```
-    # file-count /pool/postgres
-     #FILES   #DIRS       ASIZE             DUDIFF         PATH
-       1053      22    8.1G / 7.5Gi      -6.6G / -6.1Gi    /zzz/postgresql/9.3
-        855      26     39M / 37Mi       +3.3M / +3.2Mi    /zzz/postgresql/9.5
-       1910      50    8.1G / 7.6Gi      -6.6G / -6.1Gi    /zzz/postgresql
-```
-
 Show home directories larger than 100MB:
 ```
     # file-count /home -S 100M
       #FILES   #DIRS       ASIZE            DUDIFF         PATH
-        4428      63     17G / 16Gi     +13.4M / +12.8Mi   /home/repository
-        5373     477    2.5G / 2.3Gi      +31M / +30Mi     /home/scarfboy
-       10045     734     20G / 19Gi       +40M / +38Mi     /home
+        5558      55     39G / 37Gi      -27.6M / -26.3Mi    /home/repository
+      117069   10318    6.4G / 5.9Gi      -1.8G / -1.6Gi     /home/scarfboy
+      122894   10585     46G / 43Gi       -1.8G / -1.7Gi     /home
 ```
 
 
