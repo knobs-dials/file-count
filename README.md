@@ -7,7 +7,7 @@ Variation on `du` that is easier to read, and should make it easier to find wher
        29640    1910    342M / 326Mi       +70M / +67Mi      /usr/include
        77667    9504    8.7G / 8.1Gi      +182M / +174Mi     /usr/lib
          295       1     23M / 22Mi       +775K / +757Ki     /usr/lib32
-        295       1     23M / 22Mi       +767K / +749Ki     /usr/libx32
+         295       1     23M / 22Mi       +767K / +749Ki     /usr/libx32
       118728   16963   11.3G / 10.5Gi     +289M / +275Mi     /usr/local
          366       0    119M / 113Mi      +743K / +725Ki     /usr/sbin
       301078   29678   10.7G / 10Gi       +763M / +728Mi     /usr/share
