@@ -1,4 +1,4 @@
-Variation on du that is easier to read, and should make it easier to find where bulky things are:
+Variation on `du` that is easier to read, and should make it easier to find where bulky things are:
 
 ```
     # file-count /home -S 100M
