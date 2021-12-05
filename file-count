@@ -5,14 +5,11 @@
         apparent size (the byte size presented to users) and 
         disk usage (the amount of storage actually used, often a little higher, sometimes much lower)
 
-    Does not count symlinks (to know files).
+    Does not count symlinks (to known files).
 
-    TODO: allow result sorting by count and(/or) size, which means only reporting once we're done.
-    TODO: add GiB versus GB
+    Has gone through some iterations, needs cleanup.
 
-Written by Bart Alewijnse
-
-Has gone through some iterations, needs cleanup.
+    Written by Bart Alewijnse
 '''
 
 
