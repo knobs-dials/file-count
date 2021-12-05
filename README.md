@@ -1,4 +1,22 @@
-Variation on `du` that is easier to read, and should make it easier to find where bulky things are:
+Variation on `du` that is easier to read, and should make it easier to find where bulky things are
+
+```
+    # file-count /usr
+      #FILES   #DIRS       ASIZE              DUDIFF         PATH
+        2742       0    1.3G / 1.2Gi      +5.7M / +5.5Mi     /usr/bin
+           7       0    115K / 112Ki       +16K / +16Ki      /usr/games
+       29640    1910    342M / 326Mi       +70M / +67Mi      /usr/include
+       77667    9504    8.7G / 8.1Gi      +182M / +174Mi     /usr/lib
+         295       1     23M / 22Mi       +775K / +757Ki     /usr/lib32
+        295       1     23M / 22Mi       +767K / +749Ki     /usr/libx32
+      118728   16963   11.3G / 10.5Gi     +289M / +275Mi     /usr/local
+         366       0    119M / 113Mi      +743K / +725Ki     /usr/sbin
+      301078   29678   10.7G / 10Gi       +763M / +728Mi     /usr/share
+      109760   30703    387M / 369Mi      +204M / +195Mi     /usr/src
+      640578   88770     33G / 31Gi       +1.5G / +1.4Gi     /usr
+    299 link duplicates
+    INFO: we ignored 47935 symlinks
+```
 
 Figure out, by size, which installed datebase version is being used
 ```
@@ -28,7 +46,7 @@ For example:
 * reports apparent size, as well as difference in actualy disk use (which is usually only slightly higher due to filesystem overhead, but can be lower e.g. around sparse files or ZFS compression).
 
 
-Does not count symlinks.
+Since we care abou real files in their actual location, we ignore symlinks.
 
 ## USAGE
 ```
