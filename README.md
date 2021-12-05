@@ -10,6 +10,7 @@ For example:
 * ignores symlinks, since we only care about real files in their actual location
 
 
+## Examples
 Should e.g. make it easier to find where bulky things are, e.g.:
 ```
     # file-count /usr
