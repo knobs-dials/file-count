@@ -1,5 +1,4 @@
-Variation on `du` that is easier to read, and should make it easier to find where bulky things are
-
+Variation on `du` that is easier to read, and should make it easier to find where bulky things are, e.g.:
 ```
     # file-count /usr
       #FILES   #DIRS       ASIZE              DUDIFF         PATH
