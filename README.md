@@ -1,4 +1,4 @@
-Variation on `du` that is easier to read.
+Variation on `du` that is a little more informative.
 
 For example:
 * reports number of files and number of directories
