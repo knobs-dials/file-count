@@ -30,9 +30,9 @@ Should e.g. make it easier to find where bulky things are, e.g.:
     INFO: we ignored 47935 symlinks
 ```
 
-Okay, then what are the largest directories in `/usr/share`?
+Okay, then what are the largest directories in `/usr/share` - thing larger than 500MB, sorted by size?
 ```
-    # file-count /usr/share -s -S 500M
+    # file-count /usr/share -S 500M -s 
     Output postponed until we are done, since we'll be sorting it...
       #FILES   #DIRS       ASIZE              DUDIFF         PATH
         6650    1641    644M / 614Mi       +18M / +18Mi      /usr/share/atom
