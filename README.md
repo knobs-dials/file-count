@@ -1,8 +1,7 @@
 A slightly more informative variation on `du`
-
-For example:
 * reports size and also contained number of files and directories
-* reports both base-1000 and base-1024 numbers. Mostly because I got tired of explaining the difference at work.
+* reports both base-1000 and base-1024 numbers
+  * Mostly because I got tired of explaining the difference at work.
 * doesn't produce output for 2 (by default) directories deeper than the directory we started in - less spammy
 * optionally sorts by size
 * optionally filters out small-fry directories, e.g. -S 100M in the first example.
@@ -62,6 +61,30 @@ For example:
       122894   10585     46G / 43Gi       -1.8G / -1.7Gi     /home
 ```
 
+"What's the largest uses on my root disk?"
+```
+    # file-count -v -D -S 2G /
+      #FILES   #DIRS       ASIZE              DUDIFF         PATH
+    INFO: Not crossing device boundaries onto '/data/pool'
+       98508    2597    3.8G / 3.6Gi      +336M / +321Mi     /data/seafile-data
+       98508    2601    3.8G / 3.6Gi      +336M / +321Mi     /data
+    INFO: Not crossing device boundaries onto '/dev'
+       28045   12864    3.5G / 3.2Gi       +62M / +59Mi      /root
+    INFO: Not crossing device boundaries onto '/run'
+    INFO: Not crossing device boundaries onto '/sys'
+       80414   10118    8.7G / 8.1Gi      +189M / +180Mi     /usr/lib
+      201242   31877   14.6G / 13.6Gi     +523M / +499Mi     /usr/local
+      318293   38898    8.8G / 8.2Gi      +835M / +796Mi     /usr/share
+      720512  107115     34G / 32Gi       +1.8G / +1.7Gi     /usr
+      107261   15283     20G / 19Gi       +282M / +269Mi     /var/lib
+         923      46    2.4G / 2.2Gi      +2.2M / +2.1Mi     /var/log
+      111797   16625     23G / 22Gi       +292M / +278Mi     /var
+    8886 link duplicates
+    INFO: ignored 1 items
+    INFO: we ignored 59226 symlinks
+```
+
+
 
 ## USAGE
 ```
@@ -92,3 +115,4 @@ Options:
 
 ## TODO:
  - think about charset handling (maybe switch to work completely in bytes)
+ - consider counting how many times the filesystem would have us cross devices
