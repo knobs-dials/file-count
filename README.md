@@ -7,11 +7,19 @@ For example:
 * optionally sorts by size
 * optionally filters out small-fry directories, e.g. -S 100M in the first example.
 * reports apparent size, as well as difference in actualy disk use - which is usually only slightly higher due to filesystem overhead, but can be lower e.g. around sparse files, ZFS compression, and such
-* ignores symlinks, since we only care about real files in their actual location
 * can avoid walking onto other devices,  e.g. useful for "where is stuff on my system disk"
 
+## What we do around links
+* we ignore symlinks. We only care about real files in their actual location. 
+  * We still report how many symlinks we saw.
+* We avoid counting hardlinks towards size twice.
+  * This means we prefer our total size to be correct - at the cost of only counting it towards the first directory we saw it in. Something's gotta give if your tree is actually a graph and not even an acyclic one.
+  * We still report how many hardlink duplicates we saw.
+* we ignore links to `/`. 
+  * A few things like to link to that (wine, /proc) and it means we end up counting the entire filesystem when you never asked. If you want that, specify `/`
+
 ## Examples
-Should e.g. make it easier to find where bulky things are, e.g.:
+"Where are bulky things under /usr ?":
 ```
     # file-count /usr
       #FILES   #DIRS       ASIZE              DUDIFF         PATH
@@ -30,7 +38,7 @@ Should e.g. make it easier to find where bulky things are, e.g.:
     INFO: we ignored 47935 symlinks
 ```
 
-"Okay, then what are the largest directories in `/usr/share` - things larger than 500MB, sorted by size?"
+"Okay, `/usr/share` seems big, what are the directories in there larger than 500MB, sorted by size?"
 ```
     # file-count /usr/share -S 500M -s 
     Output postponed until we are done, since we'll be sorting it...
@@ -83,6 +91,3 @@ Options:
 
 ## TODO:
  - think about charset handling (maybe switch to work completely in bytes)
- - figure out double output logic of root dir
- - clarify what exactly we do around links
- - deal with being handed multiple directories (?) 
