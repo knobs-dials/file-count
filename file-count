@@ -13,11 +13,10 @@
 '''
 
 
-import os
-import sys
+import os, re, sys
 from os.path import join, isdir, islink
 from posix import *
-import re
+from tkinter import N
 
 try:
     import helpers_shellcolor as sc
@@ -43,35 +42,280 @@ except ImportError:
     pass
 
 
-# globals, ew. TODO: Class-ify?
-verbose=False
+class MyWalk(object):
 
-ignore_abs = ['/proc',] # mostly so that running it on / doesn't show a ridiculous total figure
+    def __init__(self, print_depth=2, ignore_abs=['/proc'], stay_on_device=False, extradigits=0, verbose=False):
+        ''' By default will ignore contents of /proc (largely because it includes kcore which is 128TB on 64-bit systems)
 
-printdepthmax = -1
+            print_depth    - how much deeper than the original path is printed by print_under
+            stay_on_device - whether to refuse to walk onto different filesystems.
+                             This is a default that can optionally be overwritten on ever walk() call.
+        '''
+        # config
+        self.print_depth             = print_depth
+        self.printdepthmax           = None # must be set before use (walk() before print_under())
+        self.ignore_abs              = ignore_abs        
+        self.stay_on_device_default  = stay_on_device
+        self.extradigits             = extradigits
+        self.verbose                 = verbose
+
+        # state only used during walk
+        self.linksafe                = {}  # (st_dev, st_ino) -> first full path we noticed for it
+        slash_stob                   = os.stat('/')
+        self.slash                   = (slash_stob.st_dev, slash_stob.st_ino) # Things like proc and wine like to link to /, and we want to avoid indexing everything.
+
+        # state to report afterwards
+        self.errors  = []
+        self.ignored = []
+        self.ignored_symlinks = 0
+        self.link_duplicate_count = 0
+        self.size_under_dir  = {}
+        self.du_under_dir    = {}
+        self.files_under_dir = {}
+        self.dirs_under_dir  = {}
+
+        
+    def walk(self,  path, onerror=None, followlinks=False, print_while_walking=False, start_dev=None, start_depth=None, stay_on_device=None):
+        """ This is an augmented variant of os.walk
+            - it keeps information that lets us notice hardlink duplicates, avoid links to '/', and supports stay_on_device
+            - it saves size and count statistics as it walks
+            - and it's bottom-up so that we can optionally report as we walk
+
+            You probably don't want to call this for more than one directory. 
+            It'll add it to the stored information fine, but a few details like handling of print_depth becomes ill defined (because printdepthmax is changed)
 
 
-# globals, ew. TODO: Class-ify?
-errors = []
-link_duplicates = 0
+            CONSIDER: figure out whether we want to make symlink handling flexible.
 
-size_in_dir   = {}
-du_in_dir     = {}
-#files_in_dir = {}
-#dirs_in_dir  = {}
+            Copious catches because it's likely something will change during the walk,
+              and we probably want to report that instead of stop.
+        """
+        import stat
 
-size_under_dir  = {}
-du_under_dir    = {}
-files_under_dir = {}
-dirs_under_dir  = {}
+        # CONSIDER: separate out a topmost and recursive func so we can more cleanly do some things in the topmostly only, and put it in state rather than calls
+        if path != '/': # the depth logic counts slashes, 
+            path = path.rstrip('/') # so this is for consistency
 
-ignored = []
+        if start_depth == None:
+            start_depth = path.count('/')
+            self.printdepthmax = start_depth + self.print_depth
+            
+        # the st_dev of the path we started on, supporting stay_on_device
+        if start_dev == None: # outermost call of recursion looks it up, the rest passes it
+            start_dev = os.stat( path ).st_dev  
 
-ignored_symlinks = 0
-linksafe = {}
-slash = None,None # the (dev,inode) of '/', initialised later. Things like proc and wine like to link to /, and we want to avoid indexing everything.
+        sod = self.stay_on_device_default
+        if stay_on_device != None: # only if specified does it override the default, and just for this call / recusion stack
+            sod = stay_on_device   
 
-results = [] # used when sorting
+        if path in self.ignore_abs: # ignore absolute paths we said we would ignore.  TODO: think about realname details
+            self.ignored.append( path )
+            return
+        
+        if path not in self.files_under_dir:
+            self.files_under_dir[path] = 0
+        if path not in self.dirs_under_dir:
+            self.dirs_under_dir[path] = 0
+        if path not in self.size_under_dir:
+            self.size_under_dir[path] = 0
+        if path not in self.du_under_dir:
+            self.du_under_dir[path] = 0
+                
+        try:
+            dir_entry_names = listdir(path)
+        except error as err:
+            if onerror is not None:
+                onerror(err)
+            return
+
+        dirs, nondirs = [], []
+        for name in sorted(dir_entry_names):
+            ffn = join(path, name)
+            try:
+                if os.path.islink(ffn):
+                    self.ignored_symlinks += 1 # TODO: count instead, because why not?
+                    continue
+                
+                stob = os.stat(ffn)   # does follow symlinks. TODO: allow control, i.e. lstat for no symlink following?
+
+                uniq = (stob.st_dev,stob.st_ino)
+                # CONSIDER: check for link to ancestor instead?
+                if uniq == self.slash: # /proc does this (cwd link), as does wine 
+                    #print "WARNING: skipping link to / (%r in %r)"%(name, path)
+                    continue
+                if uniq in self.linksafe:
+                    # TODO: report
+                    self.link_duplicate_count += 1
+                    #print( "Duplicate file inode in %r (%d %d, with %r), skipping..."%(ffn,stob.st_dev, stob.st_ino, self.linksafe[stob.st_dev, stob.st_ino]))
+                    continue
+            except (IOError,OSError) as e:
+                self.errors.append(ffn) 
+                continue
+
+            if stat.S_ISDIR(stob.st_mode): # queue it for recursion
+                dirs.append(name)
+                # TODO: double-check the next block
+                fe = ffn.split(os.sep)
+                for pi in range(1, len(fe)): # all the higher directories
+                    hpath = os.sep.join( fe[:pi] )
+                    if hpath not in self.dirs_under_dir:
+                        self.dirs_under_dir[hpath] = 0
+                    self.dirs_under_dir[hpath] += 1
+                    
+            else: # file or other - count it
+                #print( "Counting nondir %d %d for %r"%(stob.st_dev, stob.st_ino, ffn)  )      
+                self.linksafe[(stob.st_dev,stob.st_ino)] = ffn
+                
+                fe = ffn.split(os.sep)
+                for pi in range(1, len(fe)): # all the higher directories
+                    hpath = os.sep.join( fe[:pi] )
+                    if hpath not in self.files_under_dir:
+                        self.files_under_dir[hpath] = 0
+                    self.files_under_dir[hpath] += 1
+                    
+                    if hpath not in self.size_under_dir:
+                        self.size_under_dir[hpath]=0
+                    self.size_under_dir[hpath] += stob.st_size
+
+                    if hpath not in self.du_under_dir:
+                        self.du_under_dir[hpath]=0
+                    self.du_under_dir[hpath] += stob.st_blocks*512
+                                    
+                nondirs.append(name)
+        
+        for name in dirs:
+            try:
+                fdn = join(path, name)
+                if fdn in self.ignore_abs:
+                    self.ignored.append( fdn )
+                    continue
+                stob = os.stat(fdn)
+                uniq = (stob.st_dev,stob.st_ino)
+
+                if uniq == self.slash: 
+                    # this isn't an infinite recursion thing because have linksafe, but we generally just don't want to count everything unless explicitly requested
+                    sys.stderr.write("WARNING: link to /, skipping...\n") 
+                    continue
+
+                if uniq in self.linksafe:
+                    if self.verbose:
+                        sys.stderr.write("INFO: Duplicate dir inode in %r (%d %d, with %r), skipping...\n"%(fdn,stob.st_dev, stob.st_ino, self.linksafe[stob.st_dev, stob.st_ino]))
+                    continue
+
+                if sod and (stob.st_dev != start_dev):
+                    if self.verbose:
+                        sys.stderr.write( "INFO: Not crossing device boundaries onto %r\n"%(fdn) )
+                    continue
+
+                #if self.verbose:
+                #    sys.stderr.write( "Entering %d %d for %r\n"%(stob.st_dev, stob.st_ino, fdn)        )
+                self.linksafe[(stob.st_dev,stob.st_ino)] = fdn
+
+                #if followlinks or not stat.S_ISLNK(stob.st_mode):
+                for x in self.walk(fdn, onerror=onerror, followlinks=followlinks,print_while_walking=print_while_walking, start_dev=start_dev, start_depth=start_depth, stay_on_device=stay_on_device):
+                    yield x
+
+                if print_while_walking:
+                    self.print_under(fdn)
+                else:
+                    results.append(  (fdn, self.files_under_dir[fdn], self.dirs_under_dir[fdn], self.size_under_dir[fdn], self.du_under_dir[fdn])  )
+            except (OSError,) as e:
+                self.errors.append(e)
+                
+        yield path, dirs, nondirs
+        
+
+    def print_under(self, dn, colors=True):
+        dn = os.path.abspath(dn)
+
+        if dn not in self.files_under_dir:
+            # either ignored, or a bug
+            return
+
+        fcnt = self.files_under_dir[dn]
+        dcnt = self.dirs_under_dir[dn]
+        sz  = self.size_under_dir[dn]
+        
+        if fcnt < mincount:
+            return
+        if sz<minsize:
+            return
+        if dn.count(os.sep) > self.printdepthmax:
+            return
+        # TODO: figure out what to do with dcnt - combing condition?
+
+        fcnt_str = '%8d'%fcnt
+        dcnt_str = '%8d'%dcnt
+        if self.size_under_dir[dn]==0: # TODO: under a kB (to avoid i)
+            sz_str='         0         '
+        else:
+            sz_str   = '%8s / %-8s'%(
+                kmg(self.size_under_dir[dn], kilo=1000, extradigits=self.extradigits),
+                kmg(self.size_under_dir[dn], kilo=1024, extradigits=self.extradigits)+'i'
+            )
+        #if sz_str[-2] in '[0-9]':
+        #    sz.str=sz_str.rstrip('i')
+
+        dudiff = self.du_under_dir[dn] - self.size_under_dir[dn]
+
+        if colors: # highlight unusual directories
+            # note: moderate size or count isn't colored (default, usually gray)
+            
+            if   sz>250*1024*1024*1024: #500GB
+                sz_str = sc.brightyellow(sz_str)            
+            elif sz> 10*1024*1024*1024: #10GB 
+                sz_str = sc.yellow(sz_str)
+            elif sz>1024*1024*1024: #1GB
+                sz_str = sc.gray(sz_str)
+            elif sz<20*1024 or fcnt<4:
+                sz_str = sc.darkgray(sz_str)
+
+            if   fcnt>400000: 
+                fcnt_str = sc.brightyellow(fcnt_str)            
+            elif fcnt>75000: 
+                fcnt_str = sc.yellow(fcnt_str)
+            elif fcnt>5000: 
+                fcnt_str = sc.gray(fcnt_str)
+            elif fcnt<4:
+                fcnt_str = sc.darkgray(fcnt_str)
+
+            if   dcnt>10000: 
+                dcnt_str = sc.brightyellow(dcnt_str)            
+            elif dcnt>1000: 
+                dcnt_str = sc.yellow(dcnt_str)
+            elif dcnt>100: 
+                dcnt_str = sc.gray(dcnt_str)
+            elif dcnt<4:
+                dcnt_str = sc.darkgray(dcnt_str)
+
+        if dudiff==0: # TODO: under a kB (to avoid i)
+            dudiff_str='         0         '
+        else:
+            dudiff_str = '%8s / %-8s'%(
+                kmg( dudiff, kilo=1000, extradigits=self.extradigits, plus=True),
+                kmg( dudiff, kilo=1024, extradigits=self.extradigits, plus=True)+'i'
+            )
+
+        if abs(dudiff) < 65536:
+            dudiff_str = sc.darkgray(dudiff_str)
+        elif dudiff < 0:
+            if abs(dudiff) > 0.1*sz:
+                dudiff_str = sc.brightgreen(dudiff_str)
+            else:
+                dudiff_str = sc.green(dudiff_str)
+        else:
+            if dudiff < 0.01*sz and dudiff>64*1024:
+                dudiff_str = sc.darkgray(dudiff_str)
+            elif dudiff < 0.1*sz and dudiff>128*1024:
+                dudiff_str = sc.yellow(dudiff_str)
+            elif dudiff < 0.3*sz and dudiff>256*1024:
+                dudiff_str = sc.brightyellow(dudiff_str)
+            
+        msg = '%s%s%s%s   %s'%(fcnt_str,dcnt_str, sz_str, dudiff_str, dn)    
+        print(msg)
+        
+
+
 
 
 
@@ -82,8 +326,6 @@ def kmg(bytes,kilo=1000, append='',thresh=15,rstrip0=1, extradigits=0, plus=Fals
              kmg(342987327)     == '327M'
              kmg(34298)         == '33K'
         Decimal/SI kilos by default. Specify kilo=1024 if you want binary kilos.
-
-        Maybe use sfloat-like behaviour for the number?
     """
     ret = None
     if plus:
@@ -146,25 +388,15 @@ def kmg(bytes,kilo=1000, append='',thresh=15,rstrip0=1, extradigits=0, plus=Fals
         if '.' in ret:
             ret=ret.rstrip('0').rstrip('.')                   
 
-    ret+=append
+    ret += append
         
     return ret
 
 def parse_kmg(s, kilo=1000, listen_to_i=False):
-    """ '1k'         --> 1024
-        '2 MB'       --> 2097152
-        '1.51Gflops' --> 1621350154
-        Defaults to binary thousands.
-        Looks for kmgtp.
-        Ignores anything not [0-9kmgtp]        
-        
-        quick and dirty implementation, may need work.
-
-        Kilo defailts to decimal kilos.
-        If you want binary kilos, specify it, or set listen_to_i=True
-        (for things like 4.5KiB).
-        This is false by defauly because you ought to
-        know the amount of preformatting you need to do
+    """ '1k'         --> 1000
+        '1.51Gflops' --> 1510000000
+        Defaults to SI thousands.
+        Quick and dirty implementation: looks for [kmgtp],  ignores anything not [0-9kmgtp.]
     """
     if listen_to_i and 'i' in s:
         kilo=1024
@@ -193,299 +425,71 @@ def parse_kmg(s, kilo=1000, listen_to_i=False):
             ret *= peta
         ret=int(ret)
         return ret
-    
     except Exception as e:        
         print("Didn't understand value %r"%ns)
         print(e)
         raise
 
-
-
-
-
-def print_under(dn, colors=True): # showabspath=0, 
-    global printdepthmax
-
-    dn = os.path.abspath(dn)
-
-    if dn not in files_under_dir:
-        # either ignored, or a bug
-        return
-
-    fcnt = files_under_dir[dn]
-    dcnt = dirs_under_dir[dn]
-    sz  = size_under_dir[dn]
+#not used yet, pending choice to go bytes (or not)
+def shell_escape(s: bytes):
+    ''' Escape string for shell.
+        You should probably only use UTF8 bytestrings around this, to avoid confusing yourself.
+    '''
+    _find_unsafe_shell = re.compile(rb'[^\w./-]').search
     
-    if fcnt < mincount:
-        return
-    if sz<minsize:
-        return
-    if dn.count(os.sep) > printdepthmax:
-        return
-    # TODO: figure out what to do with dcnt - combing condition?
+    if type(s) is type(''):
+        raise ValueError("shell() takes only bytestrings. You probably want to .encode('utf8')")
+        #s = s.encode('utf8')
 
-    fcnt_str = '%8d'%fcnt
-    dcnt_str = '%8d'%dcnt
-    if size_under_dir[dn]==0: # TODO: under a kB (to avoid i)
-        sz_str='         0         '
-    else:
-        sz_str   = '%8s / %-8s'%(
-            kmg(size_under_dir[dn], kilo=1000, extradigits=extradigits),
-            kmg(size_under_dir[dn], kilo=1024, extradigits=extradigits)+'i'
-        )
-    #if sz_str[-2] in '[0-9]':
-    #    sz.str=sz_str.rstrip('i')
-
-    dudiff = du_under_dir[dn] - size_under_dir[dn]
-
-    if colors: # highlight unusual directories
-        # note: moderate size or count isn't colored (default, usually gray)
-        
-        if   sz>250*1024*1024*1024: #500GB
-            sz_str = sc.brightyellow(sz_str)            
-        elif sz> 10*1024*1024*1024: #10GB 
-            sz_str = sc.yellow(sz_str)
-        elif sz>1024*1024*1024: #1GB
-            sz_str = sc.gray(sz_str)
-        elif sz<20*1024 or fcnt<4:
-            sz_str = sc.darkgray(sz_str)
-
-        if   fcnt>400000: 
-            fcnt_str = sc.brightyellow(fcnt_str)            
-        elif fcnt>75000: 
-            fcnt_str = sc.yellow(fcnt_str)
-        elif fcnt>5000: 
-            fcnt_str = sc.gray(fcnt_str)
-        elif fcnt<4:
-            fcnt_str = sc.darkgray(fcnt_str)
-
-        if   dcnt>10000: 
-            dcnt_str = sc.brightyellow(dcnt_str)            
-        elif dcnt>1000: 
-            dcnt_str = sc.yellow(dcnt_str)
-        elif dcnt>100: 
-            dcnt_str = sc.gray(dcnt_str)
-        elif dcnt<4:
-            dcnt_str = sc.darkgray(dcnt_str)
-
-    if dudiff==0: # TODO: under a kB (to avoid i)
-        dudiff_str='         0         '
-    else:
-        dudiff_str = '%8s / %-8s'%(
-            kmg( dudiff, kilo=1000, extradigits=extradigits, plus=True),
-            kmg( dudiff, kilo=1024, extradigits=extradigits, plus=True)+'i'
-        )
-
-    if abs(dudiff) < 65536:
-        dudiff_str = sc.darkgray(dudiff_str)
-    elif dudiff < 0:
-        if abs(dudiff) > 0.1*sz:
-            dudiff_str = sc.brightgreen(dudiff_str)
-        else:
-            dudiff_str = sc.green(dudiff_str)
-    else:
-        if dudiff < 0.01*sz and dudiff>64*1024:
-            dudiff_str = sc.darkgray(dudiff_str)
-        elif dudiff < 0.1*sz and dudiff>128*1024:
-            dudiff_str = sc.yellow(dudiff_str)
-        elif dudiff < 0.3*sz and dudiff>256*1024:
-            dudiff_str = sc.brightyellow(dudiff_str)
-        
-    msg = '%s%s%s%s   %s'%(fcnt_str,dcnt_str, sz_str, dudiff_str, dn)    
-    print(msg)
+    # There are multiple ways of doing this. This seems to be the easiest to implement.
+    # This one is from https://github.com/chrissimpkins/shellescape
+    if not s:   # empty string or None becomes empty string
+        return b"''"
     
+    if _find_unsafe_shell(s) is None: # no unsafe characters: return as-is
+        return s
 
-    
-def mywalk(top, onerror=None, followlinks=False, print_while_walking=False):
-    """ this is a stripped and augmented version of from py2's os.walk
-        It saves some stats, and it's bottom-up so we could report as we walk.
-    
-        CONSIDER: figure out whether we want to make symlink handling flexible.
-    """
-    import stat
-    global errors, ignored, link_duplicates,linksafe, ignored_symlinks
+    # have special characters. Put single quotes around, which deals with all characters except ' in the string.
+    # This function deals with that by putting stopping the current string ('), adding "'", starting the string (') and counting on the shell to concatenate those
+    # e.g.  $'b  becomes '$'"'"'b' ( which to the shell is the string '$', "'", and 'b'  )
+    return b"'" + s.replace(b"'", b"'\"'\"'") + b"'"
 
-    if top in ignore_abs:
-        ignored.append( top )
-        return
-    
-    if top not in files_under_dir:
-        files_under_dir[top] = 0
-    if top not in dirs_under_dir:
-        dirs_under_dir[top] = 0
-    if top not in size_under_dir:
-        size_under_dir[top] = 0
-    if top not in du_under_dir:
-        du_under_dir[top] = 0
-            
-    try:
-        names = listdir(top)
-    except error as err:
-        #print err
-        if onerror is not None:
-            onerror(err)
-        return
-
-    dirs, nondirs = [], []
-    for name in sorted(names):
-        ffn = join(top, name)
-        try:
-            if os.path.islink(ffn):
-                ignored_symlinks += 1 # TODO: count instead, because why not?
-                continue
-            
-            stob = os.stat(ffn)   # does follow symlinks. TODO: allow control, i.e. lstat for no symlink following?
-                        
-            uniq = (stob.st_dev,stob.st_ino)
-            # CONSIDER: check for link to ancestor instead?
-            if uniq==slash: # /proc does this (cwd link), as does wine 
-                #print "WARNING: skipping link to / (%r in %r)"%(name, top)
-                continue
-            if uniq in linksafe:
-                # TODO: report
-                link_duplicates += 1
-                #print "Duplicate file inode in %r (%d %d, with %r), skipping..."%(ffn,stob.st_dev, stob.st_ino, linksafe[stob.st_dev, stob.st_ino])
-                continue
-                        
-        except (IOError,OSError) as e:
-            errors.append(ffn) 
-            continue
-            
-        if stat.S_ISDIR(stob.st_mode):
-            dirs.append(name)
-            
-            # TODO: double-check the next block
-            fe = ffn.split(os.sep)
-            for pi in range(1, len(fe)): # all the higher directories
-                hpath = os.sep.join( fe[:pi] )
-                if hpath not in dirs_under_dir:
-                    dirs_under_dir[hpath] = 0
-                dirs_under_dir[hpath] += 1
-                
-        else: # file or other (CONSIDER: test?)
-            #print "Entering nondir %d %d for %r"%(stob.st_dev, stob.st_ino, ffn)        
-            linksafe[(stob.st_dev,stob.st_ino)] = ffn
-            
-            fe = ffn.split(os.sep)
-            for pi in range(1, len(fe)): # all the higher directories
-                hpath = os.sep.join( fe[:pi] )
-                if hpath not in files_under_dir:
-                    files_under_dir[hpath] = 0
-                files_under_dir[hpath] += 1
-                
-                if hpath not in size_under_dir:
-                    size_under_dir[hpath]=0
-                size_under_dir[hpath] += stob.st_size
-
-                if hpath not in du_under_dir:
-                    du_under_dir[hpath]=0
-                du_under_dir[hpath] += stob.st_blocks*512
-                                
-            nondirs.append(name)
-    
-    for name in dirs:
-        try:
-            fdn = join(top, name)
-            if fdn in ignore_abs:
-                ignored.append( fdn )
-                continue
-            stob = os.stat(fdn)
-            uniq = (stob.st_dev,stob.st_ino)
-
-            if uniq==slash:
-                print("WARNING: link to /, skipping...")
-                continue
-            if uniq in linksafe:
-                if verbose:
-                    print("Duplicate dir inode in %r (%d %d, with %r), skipping..."%(fdn,stob.st_dev, stob.st_ino, linksafe[stob.st_dev, stob.st_ino]))
-                continue
-
-            #print "Entering %d %d for %r"%(stob.st_dev, stob.st_ino, fdn)        
-            linksafe[(stob.st_dev,stob.st_ino)] = fdn
-
-            #if followlinks or not stat.S_ISLNK(stob.st_mode):
-            for x in mywalk(fdn, onerror=onerror, followlinks=followlinks,print_while_walking=print_while_walking):
-                yield x
-
-            if print_while_walking:
-                print_under(fdn)
-            else:
-                results.append(  (fdn, files_under_dir[fdn], dirs_under_dir[fdn], size_under_dir[fdn], du_under_dir[fdn])  )
-        except (OSError,) as e:
-            errors.append(e)
-            
-    yield top, dirs, nondirs
-    
 
 
 if __name__=='__main__':
     from optparse import OptionParser
     p = OptionParser()
-
-    p.add_option("-n", "--depth",
-                 default='1',
-                 dest="depth",
-                 help="the maximum amount of directory depth to print, relative to starting point. Default is 2, which should not be so overwhelming.")
-
-    p.add_option("-C", "--mincount",
-                 default='0',
-                 dest="mincount",
-                 help="don't show directories with fewer files than this")
-
-    p.add_option("-e", "--extradigits",
-                 default='0',
-                 dest="extradigits",
-                 help="Default is to show short overviewy sizes, you can ask for more digits")
-
-    p.add_option("-S", "--minsize",
-                 default='0',
-                 dest="minsize",
-                 help="don't show directories with file size summing to less than this (note: understands values like 1.5M)")
-        
-    p.add_option("-s", "--sort-size",
-                 default=None,
-                 action='store_true',
-                 dest="sort_size",
-                 help="sort output by size (postpones output)")
-
-    p.add_option("-f", "--sort-filecount",
-                 default=None,
-                 action='store_true',
-                 dest="sort_filecount",
-                 help="sort output by file count (postpones output)")
-    
-    p.add_option("-d", "--sort-dircount",
-                 default=None,
-                 action='store_true',
-                 dest="sort_dircount",
-                 help="sort output by directory count (postpones output)")
-
+    p.add_option("-n", "--depth",             default='1',                           dest="depth",            help="the maximum amount of directory depth to print, relative to starting point. Default is 1, direct subdirectories only, which should not be so overwhelming.")
+    p.add_option("-D", "--stay-on-device",    default=False,   action="store_true",  dest="stay_on_device",   help="Don't follow mounts/symlinks onto other devices")
+    p.add_option("-C", "--mincount",          default='0',                           dest="mincount",         help="don't show directories with fewer files than this")
+    p.add_option("-S", "--minsize",           default='0',                           dest="minsize",          help="don't show directories with file size summing to less than this (note: understands values like 1.5M)")
+    p.add_option("-s", "--sort-size",         default=None,    action='store_true',  dest="sort_size",        help="sort output by size (postpones output)")
+    p.add_option("-f", "--sort-filecount",    default=None,    action='store_true',  dest="sort_filecount",   help="sort output by file count (postpones output)")
+    p.add_option("-d", "--sort-dircount",     default=None,    action='store_true',  dest="sort_dircount",    help="sort output by directory count (postpones output)")
+    p.add_option("-e", "--extradigits",       default='0',                           dest="extradigits",      help="Default is to show simplified sizes. You can ask for more digits.")
+    p.add_option("-v", "--verbose",           default=0,       action="count",       dest="verbose",          help="Report more details")
     options, args = p.parse_args()    
 
-    extradigits = int(options.extradigits)
-    
-    slash_stob = os.stat('/')
-    slash = (slash_stob.st_dev, slash_stob.st_ino)
-
     if len(args)==0:
-        args = ['.']
-    #elif len(args)==1:
-    #    path = args[0]
-    #else:
-    #    print 'Currently works on exactly one starting path, you gave %s'%len(args)
-    #    sys.exit(-1)
+        args = [ os.path.abspath('.') ]
+        sys.stderr.write( "INFO: No path given, defaulting to curdir, %r\n"%(args[0]) )
 
-    for path in args:
-        print("")
-        
-        path = os.path.abspath( path )
-        if path!='/':
-            path = path.rstrip('/')
-        if not os.path.exists(path):
-            print('Path  %r  does not exist'%path)
+
+    for arg_path in args: # each argument is handled completely independently
+
+        walkies = MyWalk( print_depth=int(options.depth,10), stay_on_device=options.stay_on_device, verbose=options.verbose, extradigits=int(options.extradigits) )
+
+        results = [] # used (only) when sorting
+
+        #path = os.path.abspath( arg_path ) # or realpath?
+        path = os.path.realpath( arg_path )
+
+        if not os.path.exists(path): # error instead of exception
+            print('Argument path  %r  does not exist'%path)
             sys.exit(-1)
 
-        printdepthmax  = path.count('/') + int(options.depth,10)  # TODO: verify. And may the logic more easily verifiable
+        print("\n\n== %s =="%path)
+
         mincount       = int(options.mincount,10)
         minsize        = parse_kmg(options.minsize)
 
@@ -494,40 +498,45 @@ if __name__=='__main__':
             print_while_walking = False
             print("Output postponed until we are done, since we'll be sorting it...")
 
+
         print("  #FILES   #DIRS       ASIZE              DUDIFF         PATH")
 
-        # do the filesystem work, and report as we go
-        for r,ds,fs in mywalk(path, print_while_walking=print_while_walking):
+        # Do the filesystem work.
+        #   if print_while_walking==True, walk() calls print_under while walking
+        for r,ds,fs in walkies.walk( path, print_while_walking=print_while_walking ):
             pass
         
-        if not print_while_walking: # condition is actually 'if we are sorting'
-            results.append( (path, files_under_dir[path], dirs_under_dir[path], size_under_dir[path], du_under_dir[path]) )
-            
-        if options.sort_size:
-            results.sort(key=lambda a: a[3])
-        elif options.sort_filecount:
-            results.sort(key=lambda a: a[1])
-        elif options.sort_dircount:
-            results.sort(key=lambda a: a[2])
-            
-        for dn,_,_,_,_ in results:
-            print_under(dn)
-        else:
-            print_under(path) # the one the recursion forgets :)
-
-    if link_duplicates > 0:
-        print("%d link duplicates"%link_duplicates)
-
-    if len(errors) > 0:
-        print("INFO: incomplete; could not access %d items"%len(errors))
-        #print errors
+        #   if print_while_walking==False it only collected the data, and we call it ourselves
+        if not print_while_walking:  # currently print_while_walking is synonymous with 'are we sorting'
+            results.append( (path, walkies.files_under_dir[path], walkies.dirs_under_dir[path], walkies.size_under_dir[path], walkies.du_under_dir[path]) )
         
-    if len(ignored) > 0:
-        print("INFO: ignored %d items"%len(ignored))
-        #print errors
+            if options.sort_size:
+                results.sort( key=lambda a: a[3] )
+            elif options.sort_filecount:
+                results.sort( key=lambda a: a[1] )
+            elif options.sort_dircount:
+                results.sort( key=lambda a: a[2] )
+                
+            for dn,_,_,_,_ in results:
+                walkies.print_under(dn)
+            else:
+                walkies.print_under(path) # the one the recursion forgets
 
-        
-    if ignored_symlinks>0:
-        print("INFO: we ignored %d symlinks"%ignored_symlinks)
 
-    print("")
+        #extra information we collected
+        if walkies.link_duplicate_count > 0:
+            print("%d link duplicates"%walkies.link_duplicate_count)
+
+        if len(walkies.errors) > 0:
+            print("WARN: incomplete; could not access %d items"%len(walkies.errors))
+            #print( errors )
+            
+        if len(walkies.ignored) > 0:
+            print("INFO: ignored %d items"%len(walkies.ignored))
+            #print( errors )
+            
+        if walkies.ignored_symlinks>0:
+            print("INFO: we ignored %d symlinks"%walkies.ignored_symlinks)
+
+
+        print("")
