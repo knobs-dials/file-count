@@ -42,7 +42,7 @@ except ImportError:
     pass
 
 
-class MyWalk(object):
+class Walker(object):
 
     def __init__(self, print_depth=2, ignore_abs=['/proc'], stay_on_device=False, extradigits=0, verbose=False):
         ''' By default will ignore contents of /proc (largely because it includes kcore which is 128TB on 64-bit systems)
@@ -51,7 +51,6 @@ class MyWalk(object):
             stay_on_device - whether to refuse to walk onto different filesystems.
                              This is a default that can optionally be overwritten on ever walk() call.
         '''
-        # config
         self.print_depth             = print_depth
         self.printdepthmax           = None # must be set before use (walk() before print_under())
         self.ignore_abs              = ignore_abs        
@@ -59,12 +58,11 @@ class MyWalk(object):
         self.extradigits             = extradigits
         self.verbose                 = verbose
 
-        # state only used during walk
+        self.walk_count              = 0
         self.linksafe                = {}  # (st_dev, st_ino) -> first full path we noticed for it
         slash_stob                   = os.stat('/')
         self.slash                   = (slash_stob.st_dev, slash_stob.st_ino) # Things like proc and wine like to link to /, and we want to avoid indexing everything.
 
-        # state to report afterwards
         self.errors  = []
         self.ignored = []
         self.ignored_symlinks = 0
@@ -74,16 +72,19 @@ class MyWalk(object):
         self.files_under_dir = {}
         self.dirs_under_dir  = {}
 
-        
-    def walk(self,  path, onerror=None, followlinks=False, print_while_walking=False, start_dev=None, start_depth=None, stay_on_device=None):
+
+       
+    def walk(self,  path, onerror=None, followlinks=False, print_while_walking=False, stay_on_device=None):
         """ This is an augmented variant of os.walk
             - it keeps information that lets us notice hardlink duplicates, avoid links to '/', and supports stay_on_device
             - it saves size and count statistics as it walks
             - and it's bottom-up so that we can optionally report as we walk
 
-            You probably don't want to call this for more than one directory. 
-            It'll add it to the stored information fine, but a few details like handling of print_depth becomes ill defined (because printdepthmax is changed)
 
+            You probably don't want to call walk() more than once per Walker object.
+              It'll add it to the stored information fine, but a few details are passed via the object, 
+              but e.g. behaviour of print_depth is just ill defined if you do
+              
 
             CONSIDER: figure out whether we want to make symlink handling flexible.
 
@@ -92,21 +93,33 @@ class MyWalk(object):
         """
         import stat
 
-        # CONSIDER: separate out a topmost and recursive func so we can more cleanly do some things in the topmostly only, and put it in state rather than calls
+        sod = self.stay_on_device_default
+        if stay_on_device != None: # only if specified does it override the default, and just for this call / recusion stack
+            sod = stay_on_device
+
+        self.walk_count += 1
+        if self.walk_count>1:
+            import warnings
+            warnings.warn("calling walk() more than once messes with depth reporting, avoid if possible")
+
         if path != '/': # the depth logic counts slashes, 
             path = path.rstrip('/') # so this is for consistency
 
-        if start_depth == None:
-            start_depth = path.count('/')
-            self.printdepthmax = start_depth + self.print_depth
+        self.start_depth = path.count('/')
+        self.printdepthmax = self.start_depth + self.print_depth
             
         # the st_dev of the path we started on, supporting stay_on_device
-        if start_dev == None: # outermost call of recursion looks it up, the rest passes it
-            start_dev = os.stat( path ).st_dev  
+        self.start_dev = os.stat( path ).st_dev  
 
-        sod = self.stay_on_device_default
-        if stay_on_device != None: # only if specified does it override the default, and just for this call / recusion stack
-            sod = stay_on_device   
+        for path, dirs, nondirs in self._walk(path, onerror=onerror, followlinks=followlinks, print_while_walking=print_while_walking, stay_on_device=sod):
+            yield path, dirs, nondirs
+
+
+
+
+    def _walk(self,  path, onerror=None, followlinks=False, print_while_walking=False, stay_on_device=None):
+        ''' walk() is the topmost which more cleanly lets us do some things in the topmostly only, and put it in state rather than stack '''
+        import stat
 
         if path in self.ignore_abs: # ignore absolute paths we said we would ignore.  TODO: think about realname details
             self.ignored.append( path )
@@ -202,7 +215,7 @@ class MyWalk(object):
                         sys.stderr.write("INFO: Duplicate dir inode in %r (%d %d, with %r), skipping...\n"%(fdn,stob.st_dev, stob.st_ino, self.linksafe[stob.st_dev, stob.st_ino]))
                     continue
 
-                if sod and (stob.st_dev != start_dev):
+                if stay_on_device and (stob.st_dev != self.start_dev):
                     if self.verbose:
                         sys.stderr.write( "INFO: Not crossing device boundaries onto %r\n"%(fdn) )
                     continue
@@ -212,7 +225,7 @@ class MyWalk(object):
                 self.linksafe[(stob.st_dev,stob.st_ino)] = fdn
 
                 #if followlinks or not stat.S_ISLNK(stob.st_mode):
-                for x in self.walk(fdn, onerror=onerror, followlinks=followlinks,print_while_walking=print_while_walking, start_dev=start_dev, start_depth=start_depth, stay_on_device=stay_on_device):
+                for x in self._walk(fdn, onerror=onerror, followlinks=followlinks,print_while_walking=print_while_walking, stay_on_device=stay_on_device):
                     yield x
 
                 if print_while_walking:
@@ -477,12 +490,11 @@ if __name__=='__main__':
 
     for arg_path in args: # each argument is handled completely independently
 
-        walkies = MyWalk( print_depth=int(options.depth,10), stay_on_device=options.stay_on_device, verbose=options.verbose, extradigits=int(options.extradigits) )
+        walkies = Walker( print_depth=int(options.depth,10), stay_on_device=options.stay_on_device, verbose=options.verbose, extradigits=int(options.extradigits) )
 
         results = [] # used (only) when sorting
 
-        #path = os.path.abspath( arg_path ) # or realpath?
-        path = os.path.realpath( arg_path )
+        path = os.path.realpath( arg_path ) # or abspath
 
         if not os.path.exists(path): # error instead of exception
             print('Argument path  %r  does not exist'%path)
