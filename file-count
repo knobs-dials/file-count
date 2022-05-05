@@ -98,7 +98,7 @@ class Walker(object):
             sod = stay_on_device
 
         self.walk_count += 1
-        if self.walk_count>1:
+        if self.walk_count > 1:
             import warnings
             warnings.warn("calling walk() more than once messes with depth reporting, avoid if possible")
 
@@ -239,6 +239,9 @@ class Walker(object):
         
 
     def print_under(self, dn, colors=True):
+        ''' Print summary entry for one directory. 
+            May be called while walking (once we travel back up a directory), or called afterwards.
+        '''
         dn = os.path.abspath(dn)
 
         if dn not in self.files_under_dir:
@@ -508,7 +511,7 @@ if __name__=='__main__':
         print_while_walking = True
         if options.sort_size!=None or options.sort_filecount!=None or options.sort_dircount!=None:
             print_while_walking = False
-            print("Output postponed until we are done, since we'll be sorting it...")
+            print("Output postponed until we are done reading, since we'll be sorting it...")
 
 
         print("  #FILES   #DIRS       ASIZE              DUDIFF         PATH")
@@ -518,7 +521,7 @@ if __name__=='__main__':
         for r,ds,fs in walkies.walk( path, print_while_walking=print_while_walking ):
             pass
         
-        #   if print_while_walking==False it only collected the data, and we call it ourselves
+        #   if print_while_walking==False it only collected the data into its state, and we call print_under ourselves
         if not print_while_walking:  # currently print_while_walking is synonymous with 'are we sorting'
             results.append( (path, walkies.files_under_dir[path], walkies.dirs_under_dir[path], walkies.size_under_dir[path], walkies.du_under_dir[path]) )
         
