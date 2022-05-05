@@ -1,12 +1,13 @@
 A slightly more informative variation on `du`
 
 For example:
-* reports number of files and number of directories
+* reports size and also contained number of files and directories
 * reports both base-1000 and base-1024 numbers. Mostly because I got tired of explaining the difference at work.
-* doesn't produce output for 2 (by default) directories deeper than the directory we started in
+* doesn't produce output for 2 (by default) directories deeper than the directory we started in - less spammy
 * optionally sorts by size
 * optionally filters out small-fry directories, e.g. -S 100M in the first example.
-* reports apparent size, as well as difference in actualy disk use - which is usually only slightly higher due to filesystem overhead, but can be lower e.g. around sparse files, ZFS compression, and such
+* reports apparent size, as well as difference in actualy disk use 
+  * disk use is usually slightly higher due to filesystem overhead, but can be lower e.g. around sparse files, ZFS compression, and such
 * can avoid walking onto other devices,  e.g. useful for "where is stuff on my system disk"
 
 ## What we do around links
