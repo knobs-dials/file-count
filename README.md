@@ -82,6 +82,7 @@ Options:
 
 
 ## TODO:
+ - think about charset handling (maybe switch to work completely in bytes)
  - figure out double output logic of root dir
  - clarify what exactly we do around links
  - deal with being handed multiple directories (?) 
