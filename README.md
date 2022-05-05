@@ -60,21 +60,24 @@ Usage: file-count [options]
 
 Options:
   -h, --help            show this help message and exit
+  -v, --verbose         Report more details
+  -D, --stay-on-device  Don't follow mounts/symlinks onto other devices
   -n DEPTH, --depth=DEPTH
                         the maximum amount of directory depth to print,
                         relative to starting point. Default is 2, which should
                         not be so overwhelming.
   -C MINCOUNT, --mincount=MINCOUNT
                         don't show directories with fewer files than this
-  -e EXTRADIGITS, --extradigits=EXTRADIGITS
-                        Default is to show short overviewy sizes, you can ask
-                        for more digits
   -S MINSIZE, --minsize=MINSIZE
                         don't show directories with file size summing to less
                         than this (note: understands values like 1.5M)
   -s, --sort-size       sort output by size (postpones output)
   -f, --sort-filecount  sort output by file count (postpones output)
   -d, --sort-dircount   sort output by directory count (postpones output)
+  -e EXTRADIGITS, --extradigits=EXTRADIGITS
+                        Default is to show short overviewy sizes, you can ask
+                        for more digits
+
 ```
 
 
